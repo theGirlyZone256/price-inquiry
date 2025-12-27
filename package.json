@@ -1,0 +1,7 @@
+{
+  "name": "inquiry-api",
+  "version": "1.0.0",
+  "dependencies": {
+    "airtable": "^0.11.1"
+  }
+}
