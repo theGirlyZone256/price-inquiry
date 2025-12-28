@@ -88,7 +88,7 @@ if (req.method === 'GET' && req.query.project) {
     // 3. Find products linked to this project
     console.log(`🔎 [BACKEND] Searching products where {project} = '${projectAirtableId}'`);
     const productRecords = await base('products').select({ 
-  filterByFormula: `SEARCH('${projectAirtableId}', ARRAYJOIN({project}))` 
+  filterByFormula: `FIND('${projectAirtableId}', ARRAYJOIN({project})) > 0` 
 }).firstPage();
     
     console.log(`✅ [BACKEND] Found ${productRecords.length} linked products`);
@@ -114,6 +114,18 @@ if (req.method === 'GET' && req.query.project) {
     return res.status(500).json({ success: false, error: error.message });
   }
 }
+
+// Add this after getting allProducts
+console.log('=== DEBUG PRODUCTS ===');
+allProducts.forEach((p, i) => {
+  console.log(`Product ${i}:`, {
+    id: p.fields.id,
+    projectField: p.fields.project,
+    projectFieldType: typeof p.fields.project,
+    isArray: Array.isArray(p.fields.project),
+    containsTarget: p.fields.project?.includes?.(projectAirtableId)
+  });
+});
 
   // SUBMIT AN INQUIRY
   if (req.method === 'POST' && req.url === '/api/inquiries') {
