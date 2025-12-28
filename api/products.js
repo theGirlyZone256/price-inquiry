@@ -27,7 +27,7 @@ module.exports = async (req, res) => {
           id: projectId,
           name: projectName || `Project ${new Date().toLocaleDateString()}`,
           Status: 'Todo',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString().split('T')[0]  // ⬅️ This gives only YYYY-MM-DD
         }
       }]);
 
