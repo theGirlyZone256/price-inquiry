@@ -5,24 +5,33 @@ const base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 
 module.exports = async (req, res) => {
-  // ================= CORS FIX =================
-  // Handle ALL origins including 'null' from local files
+  // ================= ENHANCED CORS FIX =================
+  // Allow your specific Netlify domain
+  const allowedOrigins = [
+    'https://priceinquiry.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:8000',
+    'null' // For local file://
+  ];
+  
   const origin = req.headers.origin;
-  if (origin) {
+  if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
-  // Handle preflight requests
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Handle preflight requests IMMEDIATELY
   if (req.method === 'OPTIONS') {
+    console.log('✅ Handling OPTIONS preflight for origin:', origin);
     return res.status(200).end();
   }
-  // ===========================================
-
+  // ===================================================
   // CREATE PROJECT (now receives ImgBB URLs, not Base64)
   if (req.method === 'POST' && req.url === '/api/products') {
     try {
