@@ -56,35 +56,50 @@ module.exports = async (req, res) => {
   }
 
   // KEEP THE OTHER ROUTES (GET PROJECT, SUBMIT INQUIRY) EXACTLY AS THEY WERE
-  if (req.method === 'GET' && req.query.project) {
-    try {
-      const projectId = req.query.project;
-      const projectRecords = await base('projects').select({ filterByFormula: `{id} = '${projectId}'` }).firstPage();
-      if (projectRecords.length === 0) return res.status(404).json({ success: false, error: 'Project not found' });
-      
-      const productRecords = await base('products').select({ 
-        filterByFormula: `{project} = '${projectRecords[0].id}'` 
-      }).firstPage();
-      
-      return res.json({ 
-        success: true, 
-        project: projectRecords[0].fields,
-        products: productRecords.map(p => p.fields)
-      });
-    } catch (error) {
-      return res.status(500).json({ success: false, error: error.message });
+  // --- ROUTE 2: GET ALL PRODUCTS FOR A PROJECT (GET /api/products?project=proj_123) ---
+if (req.method === 'GET' && req.query.project) {
+  try {
+    const projectId = req.query.project; // This is your custom ID like "proj_123456"
+    
+    // 1. First, find the project by your custom ID field
+    const projectRecords = await base('projects').select({ 
+      filterByFormula: `{id} = '${projectId}'` 
+    }).firstPage();
+    
+    if (projectRecords.length === 0) {
+      return res.status(404).json({ success: false, error: 'Project not found' });
     }
+    
+    const project = projectRecords[0].fields;
+    const projectAirtableId = projectRecords[0].id; // Internal ID like "recABC123"
+    
+    console.log('Custom project ID:', projectId);
+    console.log('Airtable internal project ID:', projectAirtableId);
+    
+    // 2. Find products linked to this project using the INTERNAL ID
+    const productRecords = await base('products').select({ 
+      filterByFormula: `{project} = '${projectAirtableId}'` 
+    }).firstPage();
+    
+    console.log('Found products:', productRecords.length);
+    
+    const products = productRecords.map(record => ({
+      id: record.fields.id,
+      imageUrl: record.fields.imageUrl
+    }));
+    
+    return res.json({ 
+      success: true, 
+      project: {
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        createdAt: project.createdAt
+      },
+      products: products
+    });
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
-
-  if (req.method === 'POST' && req.url === '/api/inquiries') {
-    try {
-      const { productId, price, colors, notes } = req.body;
-      await base('inquiries').create([{ fields: { productId, price: Number(price), colors, notes } }]);
-      return res.json({ success: true, message: 'Inquiry submitted.' });
-    } catch (error) {
-      return res.status(500).json({ success: false, error: error.message });
-    }
-  }
-
-  return res.status(404).json({ success: false, error: 'Route not found' });
-};
+}
