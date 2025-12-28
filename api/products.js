@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
         fields: {
           id: projectId,
           name: projectName || `Project ${new Date().toLocaleDateString()}`,
-          status: 'Todo',
+          Status: 'Todo',
           createdAt: new Date().toISOString()
         }
       }]);
