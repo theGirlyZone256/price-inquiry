@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
         fields: {
           id: `${projectId}_item${i + 1}`,
           imageUrl: url,
-          project: [projectRecord[0].id]
+          project: [projectRecord[0].getId()]
         }
       }));
       
