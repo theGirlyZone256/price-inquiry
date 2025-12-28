@@ -1,4 +1,5 @@
 const Airtable = require('airtable');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // 1. Initialize Airtable with YOUR credentials
 const base = new Airtable({
@@ -19,13 +20,35 @@ module.exports = async (req, res) => {
   // --- ROUTE 1: CREATE A NEW PROJECT WITH MULTIPLE IMAGES (POST /api/products) ---
   if (req.method === 'POST' && req.url === '/api/products') {
     try {
-      const { imageUrls, projectName } = req.body; // Now receives an ARRAY of URLs
+      const { imageUrls, projectName } = req.body; // imageUrls is now an array of Base64 strings
       
       if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
-        return res.status(400).json({ success: false, error: 'An array of image URLs is required' });
+        return res.status(400).json({ success: false, error: 'An array of image data is required' });
       }
 
-      // 1. Create a new PROJECT record
+      // UPLOAD EACH IMAGE TO IMGBB AND GET URL
+      const uploadedImageUrls = [];
+      for (let i = 0; i < imageUrls.length; i++) {
+        const base64Data = imageUrls[i].replace(/^data:image\/\w+;base64,/, '');
+        const formData = new URLSearchParams();
+        formData.append('image', base64Data);
+
+        const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`, {
+          method: 'POST',
+          body: formData
+        });
+        
+        const imgbbData = await imgbbResponse.json();
+        
+        if (imgbbData.success) {
+          // Get the direct image URL from ImgBB's response
+          uploadedImageUrls.push(imgbbData.data.url);
+        } else {
+          throw new Error(`Failed to upload image ${i + 1} to ImgBB: ${imgbbData.error?.message || 'Unknown error'}`);
+        }
+      }
+
+      // 1. Create a new PROJECT record in Airtable
       const projectId = 'proj_' + Math.floor(100000 + Math.random() * 900000);
       const projectRecord = await base('projects').create([{
         fields: {
@@ -36,28 +59,28 @@ module.exports = async (req, res) => {
         }
       }]);
 
-      // 2. Create a PRODUCT record for each image URL
+      // 2. Create a PRODUCT record for each UPLOADED ImgBB URL
       const productRecords = [];
-      for (let i = 0; i < imageUrls.length; i++) {
-        const productId = `${projectId}_item${i + 1}`; // e.g., proj_123456_item1
+      for (let i = 0; i < uploadedImageUrls.length; i++) {
+        const productId = `${projectId}_item${i + 1}`;
         productRecords.push({
           fields: {
             id: productId,
-            imageUrl: imageUrls[i],
-            project: [projectRecord[0].id] // Link to the project record
+            imageUrl: uploadedImageUrls[i], // This is now a clean ImgBB URL
+            project: [projectRecord[0].id]
           }
         });
       }
 
-      // Batch create all products in Airtable (more efficient)
+      // Batch create all products in Airtable
       await base('products').create(productRecords);
       
       return res.json({ 
         success: true, 
         projectId: projectId,
-        productCount: imageUrls.length,
+        productCount: uploadedImageUrls.length,
         inquiryUrl: `${req.headers.origin || 'https://YOUR-FRONTEND.netlify.app'}/app.html?project=${projectId}`,
-        message: `Project created with ${imageUrls.length} product(s).`
+        message: `Project created with ${uploadedImageUrls.length} product(s).`
       });
     } catch (error) {
       console.error('Error creating project:', error);
@@ -92,7 +115,7 @@ module.exports = async (req, res) => {
           status: project.status,
           createdAt: project.createdAt
         },
-        products: products // Array of {id, imageUrl}
+        products: products // Array of {id, imageUrl} where imageUrl is ImgBB link
       });
     } catch (error) {
       console.error('Error fetching project:', error);
@@ -100,7 +123,7 @@ module.exports = async (req, res) => {
     }
   }
 
-  // --- ROUTE 3: SUBMIT AN INQUIRY FOR A SINGLE PRODUCT (POST /api/inquiries) ---
+  // --- ROUTE 3: SUBMIT AN INQUIRY (POST /api/inquiries) ---
   if (req.method === 'POST' && req.url === '/api/inquiries') {
     try {
       const { productId, price, colors, notes } = req.body;
