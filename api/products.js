@@ -55,53 +55,65 @@ module.exports = async (req, res) => {
     }
   }
 
-  // GET ALL PRODUCTS FOR A PROJECT
-  if (req.method === 'GET' && req.query.project) {
-    try {
-      const projectId = req.query.project; // This is your custom ID like "proj_123456"
-      
-      // 1. First, find the project by your custom ID field
-      const projectRecords = await base('projects').select({ 
-        filterByFormula: `{id} = '${projectId}'` 
-      }).firstPage();
-      
-      if (projectRecords.length === 0) {
-        return res.status(404).json({ success: false, error: 'Project not found' });
-      }
-      
-      const project = projectRecords[0].fields;
-      const projectAirtableId = projectRecords[0].id; // Internal ID like "recABC123"
-      
-      console.log('Custom project ID:', projectId);
-      console.log('Airtable internal project ID:', projectAirtableId);
-      
-      // 2. Find products linked to this project using the INTERNAL ID
-      const productRecords = await base('products').select({ 
-        filterByFormula: `{project} = '${projectAirtableId}'` 
-      }).firstPage();
-      
-      console.log('Found products:', productRecords.length);
-      
-      const products = productRecords.map(record => ({
-        id: record.fields.id,
-        imageUrl: record.fields.imageUrl
-      }));
-      
-      return res.json({ 
-        success: true, 
-        project: {
-          id: project.id,
-          name: project.name,
-          status: project.status,
-          createdAt: project.createdAt
-        },
-        products: products
-      });
-    } catch (error) {
-      console.error('Error fetching project:', error);
-      return res.status(500).json({ success: false, error: error.message });
+  // --- ROUTE 2: GET ALL PRODUCTS FOR A PROJECT ---
+if (req.method === 'GET' && req.query.project) {
+  try {
+    const projectId = req.query.project; // "proj_128445"
+    console.log('🔍 [BACKEND] Looking for project with custom ID:', projectId);
+    
+    // 1. Find project by custom ID
+    const projectRecords = await base('projects').select({ 
+      filterByFormula: `{id} = '${projectId}'` 
+    }).firstPage();
+    
+    if (projectRecords.length === 0) {
+      console.log('❌ [BACKEND] Project not found with custom ID:', projectId);
+      return res.status(404).json({ success: false, error: 'Project not found' });
     }
+    
+    const project = projectRecords[0].fields;
+    const projectAirtableId = projectRecords[0].id; // "recABC123"
+    console.log('✅ [BACKEND] Found project:', project.name);
+    console.log('🔗 [BACKEND] Airtable internal ID:', projectAirtableId);
+    
+    // 2. DEBUG: Check what's actually in the products table
+    const allProducts = await base('products').select().firstPage();
+    console.log(`📊 [BACKEND] Total products in table: ${allProducts.length}`);
+    
+    // Log a few products to see their project field
+    allProducts.slice(0, 3).forEach((p, i) => {
+      console.log(`   Product ${i}: ID=${p.fields.id}, Project=${p.fields.project}`);
+    });
+    
+    // 3. Find products linked to this project
+    console.log(`🔎 [BACKEND] Searching products where {project} = '${projectAirtableId}'`);
+    const productRecords = await base('products').select({ 
+      filterByFormula: `{project} = '${projectAirtableId}'` 
+    }).firstPage();
+    
+    console.log(`✅ [BACKEND] Found ${productRecords.length} linked products`);
+    
+    const products = productRecords.map(record => ({
+      id: record.fields.id,
+      imageUrl: record.fields.imageUrl
+    }));
+    
+    return res.json({ 
+      success: true, 
+      project: {
+        id: project.id,
+        name: project.name,
+        status: project.Status || 'Todo',
+        createdAt: project.createdAt
+      },
+      products: products
+    });
+    
+  } catch (error) {
+    console.error('❌ [BACKEND] Error:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
+}
 
   // SUBMIT AN INQUIRY
   if (req.method === 'POST' && req.url === '/api/inquiries') {
