@@ -5,13 +5,14 @@ const base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 
 module.exports = async (req, res) => {
-  // ================= ENHANCED CORS FIX =================
-  // Allow your specific Netlify domain
+  // ================= BULLETPROOF CORS HANDLING =================
+  // Always set these headers for EVERY response
   const allowedOrigins = [
     'https://priceinquiry.netlify.app',
     'http://localhost:3000',
     'http://localhost:8000',
-    'null' // For local file://
+    'http://localhost:8080',
+    'null'
   ];
   
   const origin = req.headers.origin;
@@ -24,24 +25,24 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  res.setHeader('Access-Control-Max-Age', '86400');
   
-  // Handle preflight requests IMMEDIATELY
+  // CRITICAL: Handle ALL OPTIONS requests IMMEDIATELY
   if (req.method === 'OPTIONS') {
-    console.log('✅ Handling OPTIONS preflight for origin:', origin);
+    console.log(`✅ OPTIONS preflight handled for: ${req.url} from origin: ${origin}`);
     return res.status(200).end();
   }
-  // ===================================================
-  // CREATE PROJECT (now receives ImgBB URLs, not Base64)
+  // ============================================================
+
+  // CREATE PROJECT
   if (req.method === 'POST' && req.url === '/api/products') {
     try {
-      const { imageUrls, projectName } = req.body; // imageUrls are now ImgBB URLs
+      const { imageUrls, projectName } = req.body;
       
       if (!imageUrls || !Array.isArray(imageUrls)) {
         return res.status(400).json({ success: false, error: 'Image URLs array required' });
       }
 
-      // 1. Create Project
       const projectId = 'proj_' + Math.floor(100000 + Math.random() * 900000);
       const projectRecord = await base('projects').create([{
         fields: {
@@ -52,13 +53,11 @@ module.exports = async (req, res) => {
         }
       }]);
 
-      // 2. Create Products with ImgBB URLs
-      // Use .id instead of .getId() - Airtable internal ID
       const productRecords = imageUrls.map((url, i) => ({
         fields: {
           id: `${projectId}_item${i + 1}`,
           imageUrl: url,
-          project: [projectRecord[0].id]  // ⬅️ Changed to .id
+          project: [projectRecord[0].id]
         }
       }));
       
@@ -68,7 +67,7 @@ module.exports = async (req, res) => {
         success: true, 
         projectId: projectId,
         productCount: imageUrls.length,
-        inquiryUrl: `${origin || 'https://YOUR-FRONTEND.netlify.app'}/app.html?project=${projectId}`,
+        inquiryUrl: `${origin || 'https://priceinquiry.netlify.app'}/?project=${projectId}`,
         message: `Project created with ${imageUrls.length} product(s).`
       });
     } catch (error) {
@@ -77,12 +76,11 @@ module.exports = async (req, res) => {
     }
   }
 
-  // --- ROUTE 2: GET ALL PRODUCTS FOR A PROJECT ---
+  // GET PROJECT WITH PRODUCTS
   if (req.method === 'GET' && req.query.project) {
     try {
       const projectId = req.query.project;
       
-      // 1. Find the project
       const projectRecords = await base('projects').select({
         filterByFormula: `{id} = '${projectId}'`
       }).firstPage();
@@ -94,10 +92,8 @@ module.exports = async (req, res) => {
       const project = projectRecords[0].fields;
       const projectAirtableId = projectRecords[0].id;
       
-      // 2. GET ALL PRODUCTS and filter MANUALLY
       const allProducts = await base('products').select().all();
       
-      // 3. Filter products where project array contains our projectAirtableId
       const linkedProducts = [];
       allProducts.forEach(record => {
         if (record.fields.project && 
@@ -110,7 +106,7 @@ module.exports = async (req, res) => {
         }
       });
       
-      console.log(`✅ Manual filter found ${linkedProducts.length} products`);
+      console.log(`✅ Found ${linkedProducts.length} products for project ${projectId}`);
       
       return res.json({
         success: true,
@@ -129,16 +125,26 @@ module.exports = async (req, res) => {
     }
   }
 
-  // SUBMIT AN INQUIRY
+  // SUBMIT INQUIRY
   if (req.method === 'POST' && req.url === '/api/inquiries') {
     try {
       const { productId, price, colors, notes } = req.body;
+      console.log(`📝 Submitting inquiry for product: ${productId}, price: ${price}`);
+      
       if (!productId || !price) {
         return res.status(400).json({ success: false, error: 'Product ID and Price are required' });
       }
-      // Save to Airtable 'inquiries' table
-      await base('inquiries').create([{ fields: { productId, price: Number(price), colors, notes } }]);
       
+      await base('inquiries').create([{ 
+        fields: { 
+          productId, 
+          price: Number(price), 
+          colors: colors || '', 
+          notes: notes || '' 
+        } 
+      }]);
+      
+      console.log(`✅ Inquiry saved for product: ${productId}`);
       return res.json({ success: true, message: 'Inquiry response submitted.' });
     } catch (error) {
       console.error('Error submitting inquiry:', error);
@@ -146,6 +152,11 @@ module.exports = async (req, res) => {
     }
   }
 
-  // If no route matches
-  return res.status(404).json({ success: false, error: 'Route not found' });
+  // Default 404 for unmatched routes
+  return res.status(404).json({ 
+    success: false, 
+    error: 'Route not found',
+    requestedUrl: req.url,
+    method: req.method 
+  });
 };
