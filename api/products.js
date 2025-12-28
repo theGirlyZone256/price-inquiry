@@ -58,74 +58,54 @@ module.exports = async (req, res) => {
   // --- ROUTE 2: GET ALL PRODUCTS FOR A PROJECT ---
 if (req.method === 'GET' && req.query.project) {
   try {
-    const projectId = req.query.project; // "proj_128445"
-    console.log('🔍 [BACKEND] Looking for project with custom ID:', projectId);
+    const projectId = req.query.project;
     
-    // 1. Find project by custom ID
-    const projectRecords = await base('projects').select({ 
-      filterByFormula: `{id} = '${projectId}'` 
+    // 1. Find the project
+    const projectRecords = await base('projects').select({
+      filterByFormula: `{id} = '${projectId}'`
     }).firstPage();
     
     if (projectRecords.length === 0) {
-      console.log('❌ [BACKEND] Project not found with custom ID:', projectId);
       return res.status(404).json({ success: false, error: 'Project not found' });
     }
     
     const project = projectRecords[0].fields;
-    const projectAirtableId = projectRecords[0].id; // "recABC123"
-    console.log('✅ [BACKEND] Found project:', project.name);
-    console.log('🔗 [BACKEND] Airtable internal ID:', projectAirtableId);
+    const projectAirtableId = projectRecords[0].id;
     
-    // 2. DEBUG: Check what's actually in the products table
-    const allProducts = await base('products').select().firstPage();
-    console.log(`📊 [BACKEND] Total products in table: ${allProducts.length}`);
+    // 2. GET ALL PRODUCTS and filter MANUALLY (bypass Airtable filter issues)
+    const allProducts = await base('products').select().all();
     
-    // Log a few products to see their project field
-    allProducts.slice(0, 3).forEach((p, i) => {
-      console.log(`   Product ${i}: ID=${p.fields.id}, Project=${p.fields.project}`);
+    // 3. Filter products where project array contains our projectAirtableId
+    const linkedProducts = [];
+    allProducts.forEach(record => {
+      if (record.fields.project && 
+          Array.isArray(record.fields.project) && 
+          record.fields.project.includes(projectAirtableId)) {
+        linkedProducts.push({
+          id: record.fields.id,
+          imageUrl: record.fields.imageUrl
+        });
+      }
     });
     
-    // 3. Find products linked to this project
-    console.log(`🔎 [BACKEND] Searching products where {project} = '${projectAirtableId}'`);
-    const productRecords = await base('products').select({ 
-  filterByFormula: `FIND('${projectAirtableId}', ARRAYJOIN({project})) > 0` 
-}).firstPage();
+    console.log(`✅ Manual filter found ${linkedProducts.length} products`);
     
-    console.log(`✅ [BACKEND] Found ${productRecords.length} linked products`);
-    
-    const products = productRecords.map(record => ({
-      id: record.fields.id,
-      imageUrl: record.fields.imageUrl
-    }));
-    
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       project: {
         id: project.id,
         name: project.name,
         status: project.Status || 'Todo',
         createdAt: project.createdAt
       },
-      products: products
+      products: linkedProducts
     });
     
   } catch (error) {
-    console.error('❌ [BACKEND] Error:', error);
+    console.error('Error:', error);
     return res.status(500).json({ success: false, error: error.message });
   }
 }
-
-// Add this after getting allProducts
-console.log('=== DEBUG PRODUCTS ===');
-allProducts.forEach((p, i) => {
-  console.log(`Product ${i}:`, {
-    id: p.fields.id,
-    projectField: p.fields.project,
-    projectFieldType: typeof p.fields.project,
-    isArray: Array.isArray(p.fields.project),
-    containsTarget: p.fields.project?.includes?.(projectAirtableId)
-  });
-});
 
   // SUBMIT AN INQUIRY
   if (req.method === 'POST' && req.url === '/api/inquiries') {
