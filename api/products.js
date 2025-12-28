@@ -5,34 +5,27 @@ const base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 
 module.exports = async (req, res) => {
-  // ================= BULLETPROOF CORS HANDLING =================
-  // Always set these headers for EVERY response
-  const allowedOrigins = [
-    'https://priceinquiry.netlify.app',
-    'http://localhost:3000',
-    'http://localhost:8000',
-    'http://localhost:8080',
-    'null'
-  ];
+  // ================= CORRECT CORS HANDLING =================
+  console.log(`🌐 Request: ${req.method} ${req.url} from origin: ${req.headers.origin}`);
   
+  // Set CORS headers for EVERY response
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
   
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  // ALWAYS set these headers
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400');
   
-  // CRITICAL: Handle ALL OPTIONS requests IMMEDIATELY
+  // Log what headers we're setting
+  console.log(`✅ Setting CORS headers for origin: ${origin || '*'}`);
+  
+  // Handle preflight OPTIONS immediately
   if (req.method === 'OPTIONS') {
-    console.log(`✅ OPTIONS preflight handled for: ${req.url} from origin: ${origin}`);
+    console.log(`🛬 Handling OPTIONS preflight`);
     return res.status(200).end();
   }
-  // ============================================================
+  // ========================================================
 
   // CREATE PROJECT
   if (req.method === 'POST' && req.url === '/api/products') {
