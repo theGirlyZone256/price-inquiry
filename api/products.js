@@ -88,8 +88,8 @@ if (req.method === 'GET' && req.query.project) {
     // 3. Find products linked to this project
     console.log(`🔎 [BACKEND] Searching products where {project} = '${projectAirtableId}'`);
     const productRecords = await base('products').select({ 
-      filterByFormula: `{project} = '${projectAirtableId}'` 
-    }).firstPage();
+  filterByFormula: `SEARCH('${projectAirtableId}', ARRAYJOIN({project}))` 
+}).firstPage();
     
     console.log(`✅ [BACKEND] Found ${productRecords.length} linked products`);
     
