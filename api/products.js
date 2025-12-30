@@ -1,5 +1,9 @@
 const Airtable = require('airtable');
 
+const base = new Airtable({
+  apiKey: process.env.AIRTABLE_API_KEY
+}).base(process.env.AIRTABLE_BASE_ID);
+
 module.exports = async (req, res) => {
   // === CORS HEADERS ===
   res.setHeader('Access-Control-Allow-Origin', 'https://priceinquiry.netlify.app');
@@ -11,15 +15,8 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
   
-  console.log(`📡 ${req.method} ${req.url}`, req.query);
-  
-  // Initialize Airtable
-  const base = new Airtable({
-    apiKey: process.env.AIRTABLE_API_KEY
-  }).base(process.env.AIRTABLE_BASE_ID);
-  
-  // CREATE PROJECT (POST to /api/products)
-  if (req.method === 'POST') {
+  // CREATE PROJECT
+  if (req.method === 'POST' && req.url === '/api/products') {
     try {
       const { imageUrls, projectName } = req.body;
       
@@ -31,7 +28,6 @@ module.exports = async (req, res) => {
       }
       
       const projectId = 'proj_' + Math.floor(100000 + Math.random() * 900000);
-      console.log(`🆕 Creating project: ${projectId} with ${imageUrls.length} images`);
       
       // Create project
       const projectRecord = await base('projects').create([{
@@ -44,7 +40,6 @@ module.exports = async (req, res) => {
       }]);
       
       const projectAirtableId = projectRecord[0].id;
-      console.log(`✅ Project created. Airtable ID: ${projectAirtableId}`);
       
       // Create products
       const productRecords = imageUrls.map((url, i) => ({
@@ -55,9 +50,7 @@ module.exports = async (req, res) => {
         }
       }));
       
-      console.log(`📸 Creating ${productRecords.length} product records...`);
       await base('products').create(productRecords);
-      console.log(`✅ Products created successfully`);
       
       return res.json({ 
         success: true, 
@@ -68,7 +61,7 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('❌ Error creating project:', error);
+      console.error('Error:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
@@ -76,19 +69,17 @@ module.exports = async (req, res) => {
     }
   }
   
-  // GET PROJECT WITH PRODUCTS (GET with project query parameter)
+  // GET PROJECT WITH PRODUCTS - USING MANUAL FILTERING
   if (req.method === 'GET' && req.query.project) {
     try {
       const projectId = req.query.project;
-      console.log(`🔍 Looking for project: ${projectId}`);
       
-      // Find project
+      // 1. Find the project
       const projectRecords = await base('projects').select({
         filterByFormula: `{id} = '${projectId}'`
       }).firstPage();
       
       if (projectRecords.length === 0) {
-        console.log(`❌ Project not found: ${projectId}`);
         return res.status(404).json({ 
           success: false, 
           error: 'Project not found' 
@@ -97,19 +88,29 @@ module.exports = async (req, res) => {
       
       const project = projectRecords[0].fields;
       const projectAirtableId = projectRecords[0].id;
-      console.log(`✅ Project found. Airtable ID: ${projectAirtableId}`);
       
-      // Find products for this project
-      const productRecords = await base('products').select({
-        filterByFormula: `{project} = '${projectAirtableId}'`
-      }).firstPage();
+      // 2. GET ALL PRODUCTS and filter MANUALLY
+      const allProducts = await base('products').select().all();
       
-      console.log(`📊 Found ${productRecords.length} products linked to project`);
+      // 3. Filter products where project array contains our projectAirtableId
+      const linkedProducts = [];
+      allProducts.forEach(record => {
+        if (record.fields.project && 
+            Array.isArray(record.fields.project) && 
+            record.fields.project.includes(projectAirtableId)) {
+          linkedProducts.push({
+            id: record.fields.id,
+            imageUrl: record.fields.imageUrl
+          });
+        }
+      });
       
-      const linkedProducts = productRecords.map(record => ({
-        id: record.fields.id,
-        imageUrl: record.fields.imageUrl
-      }));
+      // Sort by creation order (item1, item2, etc.)
+      linkedProducts.sort((a, b) => {
+        const aNum = parseInt(a.id.split('_item')[1]) || 0;
+        const bNum = parseInt(b.id.split('_item')[1]) || 0;
+        return aNum - bNum;
+      });
       
       return res.json({
         success: true,
@@ -123,7 +124,7 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('❌ Error fetching project:', error);
+      console.error('Error:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
@@ -131,17 +132,53 @@ module.exports = async (req, res) => {
     }
   }
   
-  // SIMPLE DEBUG - check if function is working
-  if (req.method === 'GET') {
-    return res.json({
-      success: true,
-      message: 'API is working',
-      endpoint: '/api/products',
-      query: req.query,
-      projectParam: req.query.project
-    });
+  // SUBMIT INQUIRY - SIMPLE VERSION
+  if (req.method === 'POST' && req.url === '/api/inquiries') {
+    try {
+      const { productId, price, colors, notes } = req.body;
+      
+      if (!productId || !price) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Product ID and Price are required' 
+        });
+      }
+      
+      // Convert price to number
+      const priceNum = Number(price);
+      if (isNaN(priceNum) || priceNum <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Price must be a positive number' 
+        });
+      }
+      
+      // Create the inquiry record
+      await base('inquiries').create([{ 
+        fields: { 
+          productId, 
+          price: priceNum,
+          colors: colors || '', 
+          notes: notes || '',
+          submittedAt: new Date().toISOString()
+        } 
+      }]);
+      
+      return res.json({ 
+        success: true, 
+        message: 'Inquiry response submitted successfully.'
+      });
+      
+    } catch (error) {
+      console.error('Error submitting inquiry:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
   }
   
+  // Default 404
   return res.status(404).json({ 
     success: false, 
     error: 'Route not found' 
