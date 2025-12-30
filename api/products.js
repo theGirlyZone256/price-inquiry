@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
     apiKey: process.env.AIRTABLE_API_KEY
   }).base(process.env.AIRTABLE_BASE_ID);
   
-  // CREATE PROJECT
+  // CREATE PROJECT (POST)
   if (req.method === 'POST' && req.url === '/api/products') {
     try {
       const { imageUrls, projectName } = req.body;
@@ -30,13 +30,13 @@ module.exports = async (req, res) => {
       
       const projectId = 'proj_' + Math.floor(100000 + Math.random() * 900000);
       
-      // Create project with PROPER date format
+      // Create project
       const projectRecord = await base('projects').create([{
         fields: {
           id: projectId,
           name: projectName || `Project ${new Date().toLocaleDateString()}`,
           Status: 'Todo',
-          createdAt: new Date().toISOString().split('T')[0] // FIX: Use YYYY-MM-DD format
+          createdAt: new Date().toISOString().split('T')[0]
         }
       }]);
       
@@ -57,6 +57,56 @@ module.exports = async (req, res) => {
         productCount: imageUrls.length,
         inquiryUrl: `https://priceinquiry.netlify.app/?project=${projectId}`,
         message: `Project created with ${imageUrls.length} product(s).`
+      });
+      
+    } catch (error) {
+      console.error('Error:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  }
+  
+  // GET PROJECT WITH PRODUCTS (GET)
+  if (req.method === 'GET' && req.query.project) {
+    try {
+      const projectId = req.query.project;
+      
+      // Find project
+      const projectRecords = await base('projects').select({
+        filterByFormula: `{id} = '${projectId}'`
+      }).firstPage();
+      
+      if (projectRecords.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Project not found' 
+        });
+      }
+      
+      const project = projectRecords[0].fields;
+      const projectAirtableId = projectRecords[0].id;
+      
+      // Find products for this project
+      const productRecords = await base('products').select({
+        filterByFormula: `{project} = '${projectAirtableId}'`
+      }).firstPage();
+      
+      const linkedProducts = productRecords.map(record => ({
+        id: record.fields.id,
+        imageUrl: record.fields.imageUrl
+      }));
+      
+      return res.json({
+        success: true,
+        project: {
+          id: project.id,
+          name: project.name,
+          status: project.Status || 'Todo',
+          createdAt: project.createdAt
+        },
+        products: linkedProducts
       });
       
     } catch (error) {
