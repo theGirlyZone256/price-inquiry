@@ -12,16 +12,17 @@ try {
 
 // Main handler
 const handler = async (req, res) => {
-  // === CORS - SET THESE HEADERS FOR EVERY RESPONSE ===
+  // === CRITICAL: CORS HEADERS MUST BE SET FIRST ===
+  // Set headers for ALL responses
   res.setHeader('Access-Control-Allow-Origin', 'https://priceinquiry.netlify.app');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '86400');
   
-  // === HANDLE OPTIONS PREFLIGHT - RETURN EARLY ===
+  // === HANDLE OPTIONS PREFLIGHT - MUST RETURN 200 ===
   if (req.method === 'OPTIONS') {
-    console.log('✅ OPTIONS preflight handled');
+    console.log('✅ OPTIONS preflight handled for', req.url);
     return res.status(200).end();
   }
   
@@ -191,7 +192,7 @@ const handler = async (req, res) => {
           const msg = {
             to: 'epignosistic@gmail.com', // Your email
             // ⚠️ IMPORTANT: Change this to match your VERIFIED sender email in SendGrid
-            from: 'epignosistic@gmail.com', // MUST be your verified sender
+            from: 'epignosistic.alerts@gmail.com', // MUST be your verified sender
             subject: `🛒 New Price Quote: ${productId}`,
             html: `
               <div style="font-family: Arial, sans-serif; max-width: 600px;">
@@ -243,6 +244,7 @@ const handler = async (req, res) => {
     }
   }
   
+  // Default 404
   return res.status(404).json({ 
     success: false, 
     error: 'Route not found',
