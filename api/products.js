@@ -5,28 +5,31 @@ const base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 
 module.exports = async (req, res) => {
-  // ================= CORRECT CORS HANDLING =================
-  console.log(`🌐 Request: ${req.method} ${req.url} from origin: ${req.headers.origin}`);
+  // ================= IMPROVED CORS HANDLING =================
+  const allowedOrigins = [
+    'https://priceinquiry.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:8000'
+  ];
   
-  // Set CORS headers for EVERY response
   const origin = req.headers.origin;
+  const isAllowedOrigin = allowedOrigins.includes(origin) || origin?.includes('netlify.app');
   
-  // ALWAYS set these headers
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', isAllowedOrigin ? origin : '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
   
-  // Log what headers we're setting
-  console.log(`✅ Setting CORS headers for origin: ${origin || '*'}`);
-  
-  // Handle preflight OPTIONS immediately
+  // Handle preflight OPTIONS
   if (req.method === 'OPTIONS') {
-    console.log(`🛬 Handling OPTIONS preflight`);
     return res.status(200).end();
   }
   // ========================================================
 
+  console.log(`🌐 ${req.method} ${req.url}`);
+  
   // CREATE PROJECT
   if (req.method === 'POST' && req.url === '/api/products') {
     try {
@@ -42,10 +45,11 @@ module.exports = async (req, res) => {
           id: projectId,
           name: projectName || `Project ${new Date().toLocaleDateString()}`,
           Status: 'Todo',
-          createdAt: new Date().toISOString().split('T')[0]
+          createdAt: new Date().toISOString()
         }
       }]);
 
+      // Create product records
       const productRecords = imageUrls.map((url, i) => ({
         fields: {
           id: `${projectId}_item${i + 1}`,
@@ -54,17 +58,21 @@ module.exports = async (req, res) => {
         }
       }));
       
-      await base('products').create(productRecords);
+      // Batch create products (max 10 per request for Airtable)
+      for (let i = 0; i < productRecords.length; i += 10) {
+        const batch = productRecords.slice(i, i + 10);
+        await base('products').create(batch);
+      }
       
       return res.json({ 
         success: true, 
         projectId: projectId,
         productCount: imageUrls.length,
-        inquiryUrl: `${origin || 'https://priceinquiry.netlify.app'}/?project=${projectId}`,
+        inquiryUrl: `https://priceinquiry.netlify.app/?project=${projectId}`,
         message: `Project created with ${imageUrls.length} product(s).`
       });
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error creating project:', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -85,19 +93,15 @@ module.exports = async (req, res) => {
       const project = projectRecords[0].fields;
       const projectAirtableId = projectRecords[0].id;
       
-      const allProducts = await base('products').select().all();
+      // Get all products linked to this project
+      const productRecords = await base('products').select({
+        filterByFormula: `{project} = '${projectAirtableId}'`
+      }).firstPage();
       
-      const linkedProducts = [];
-      allProducts.forEach(record => {
-        if (record.fields.project && 
-            Array.isArray(record.fields.project) && 
-            record.fields.project.includes(projectAirtableId)) {
-          linkedProducts.push({
-            id: record.fields.id,
-            imageUrl: record.fields.imageUrl
-          });
-        }
-      });
+      const linkedProducts = productRecords.map(record => ({
+        id: record.fields.id,
+        imageUrl: record.fields.imageUrl
+      }));
       
       console.log(`✅ Found ${linkedProducts.length} products for project ${projectId}`);
       
@@ -113,7 +117,7 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error fetching project:', error);
       return res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -121,24 +125,46 @@ module.exports = async (req, res) => {
   // SUBMIT INQUIRY
   if (req.method === 'POST' && req.url === '/api/inquiries') {
     try {
+      console.log('📝 Inquiry body:', req.body);
       const { productId, price, colors, notes } = req.body;
-      console.log(`📝 Submitting inquiry for product: ${productId}, price: ${price}`);
       
       if (!productId || !price) {
         return res.status(400).json({ success: false, error: 'Product ID and Price are required' });
       }
       
-      await base('inquiries').create([{ 
+      // First, find the product to get its image URL
+      const productRecords = await base('products').select({
+        filterByFormula: `{id} = '${productId}'`
+      }).firstPage();
+      
+      if (productRecords.length === 0) {
+        return res.status(404).json({ success: false, error: 'Product not found' });
+      }
+      
+      const product = productRecords[0];
+      const projectId = product.fields.project?.[0];
+      
+      // Create the inquiry record
+      const inquiryRecord = await base('inquiries').create([{ 
         fields: { 
           productId, 
           price: Number(price), 
           colors: colors || '', 
-          notes: notes || '' 
+          notes: notes || '',
+          productImage: product.fields.imageUrl,
+          project: projectId ? [projectId] : [],
+          submittedAt: new Date().toISOString(),
+          status: 'Submitted'
         } 
       }]);
       
-      console.log(`✅ Inquiry saved for product: ${productId}`);
-      return res.json({ success: true, message: 'Inquiry response submitted.' });
+      console.log(`✅ Inquiry saved: ${inquiryRecord[0].id} for product: ${productId}`);
+      
+      return res.json({ 
+        success: true, 
+        message: 'Inquiry response submitted.',
+        inquiryId: inquiryRecord[0].id 
+      });
     } catch (error) {
       console.error('Error submitting inquiry:', error);
       return res.status(500).json({ success: false, error: error.message });
