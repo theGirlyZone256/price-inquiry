@@ -11,6 +11,8 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
   
+  console.log(`📡 ${req.method} ${req.url}`, req.query);
+  
   // Initialize Airtable
   const base = new Airtable({
     apiKey: process.env.AIRTABLE_API_KEY
@@ -29,6 +31,7 @@ module.exports = async (req, res) => {
       }
       
       const projectId = 'proj_' + Math.floor(100000 + Math.random() * 900000);
+      console.log(`🆕 Creating project: ${projectId} with ${imageUrls.length} images`);
       
       // Create project
       const projectRecord = await base('projects').create([{
@@ -40,16 +43,21 @@ module.exports = async (req, res) => {
         }
       }]);
       
+      const projectAirtableId = projectRecord[0].id;
+      console.log(`✅ Project created. Airtable ID: ${projectAirtableId}`);
+      
       // Create products
       const productRecords = imageUrls.map((url, i) => ({
         fields: {
           id: `${projectId}_item${i + 1}`,
           imageUrl: url,
-          project: [projectRecord[0].id]
+          project: [projectAirtableId] // Use Airtable's internal ID, not our custom ID
         }
       }));
       
+      console.log(`📸 Creating ${productRecords.length} product records...`);
       await base('products').create(productRecords);
+      console.log(`✅ Products created successfully`);
       
       return res.json({ 
         success: true, 
@@ -60,7 +68,7 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Error creating project:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
@@ -72,6 +80,7 @@ module.exports = async (req, res) => {
   if (req.method === 'GET' && req.query.project) {
     try {
       const projectId = req.query.project;
+      console.log(`🔍 Looking for project: ${projectId}`);
       
       // Find project
       const projectRecords = await base('projects').select({
@@ -79,6 +88,7 @@ module.exports = async (req, res) => {
       }).firstPage();
       
       if (projectRecords.length === 0) {
+        console.log(`❌ Project not found: ${projectId}`);
         return res.status(404).json({ 
           success: false, 
           error: 'Project not found' 
@@ -87,11 +97,14 @@ module.exports = async (req, res) => {
       
       const project = projectRecords[0].fields;
       const projectAirtableId = projectRecords[0].id;
+      console.log(`✅ Project found. Airtable ID: ${projectAirtableId}`);
       
       // Find products for this project
       const productRecords = await base('products').select({
         filterByFormula: `{project} = '${projectAirtableId}'`
       }).firstPage();
+      
+      console.log(`📊 Found ${productRecords.length} products linked to project`);
       
       const linkedProducts = productRecords.map(record => ({
         id: record.fields.id,
@@ -110,11 +123,47 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Error fetching project:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
       });
+    }
+  }
+  
+  // DEBUG ENDPOINT
+  if (req.method === 'GET' && req.url.startsWith('/api/debug')) {
+    try {
+      const projectId = req.query.project;
+      
+      // Get ALL projects
+      const allProjects = await base('projects').select().all();
+      console.log('📋 All projects:', allProjects.map(p => ({id: p.fields.id, name: p.fields.name})));
+      
+      // Get ALL products
+      const allProducts = await base('products').select().all();
+      console.log('📦 All products:', allProducts.map(p => ({
+        id: p.fields.id,
+        imageUrl: p.fields.imageUrl?.substring(0, 50) + '...',
+        project: p.fields.project
+      })));
+      
+      return res.json({
+        success: true,
+        requestedProjectId: projectId,
+        totalProjects: allProjects.length,
+        totalProducts: allProducts.length,
+        allProjectIds: allProjects.map(p => p.fields.id),
+        productLinks: allProducts.map(p => ({
+          id: p.fields.id,
+          hasProjectLink: !!p.fields.project,
+          projectLink: p.fields.project
+        }))
+      });
+      
+    } catch (error) {
+      console.error('Debug error:', error);
+      return res.status(500).json({ error: error.message });
     }
   }
   
