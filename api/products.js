@@ -18,8 +18,8 @@ module.exports = async (req, res) => {
     apiKey: process.env.AIRTABLE_API_KEY
   }).base(process.env.AIRTABLE_BASE_ID);
   
-  // CREATE PROJECT (POST)
-  if (req.method === 'POST' && req.url === '/api/products') {
+  // CREATE PROJECT (POST to /api/products)
+  if (req.method === 'POST') {
     try {
       const { imageUrls, projectName } = req.body;
       
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
         fields: {
           id: `${projectId}_item${i + 1}`,
           imageUrl: url,
-          project: [projectAirtableId] // Use Airtable's internal ID, not our custom ID
+          project: [projectAirtableId]
         }
       }));
       
@@ -76,7 +76,7 @@ module.exports = async (req, res) => {
     }
   }
   
-  // GET PROJECT WITH PRODUCTS (GET)
+  // GET PROJECT WITH PRODUCTS (GET with project query parameter)
   if (req.method === 'GET' && req.query.project) {
     try {
       const projectId = req.query.project;
@@ -131,40 +131,15 @@ module.exports = async (req, res) => {
     }
   }
   
-  // DEBUG ENDPOINT
-  if (req.method === 'GET' && req.url.startsWith('/api/debug')) {
-    try {
-      const projectId = req.query.project;
-      
-      // Get ALL projects
-      const allProjects = await base('projects').select().all();
-      console.log('📋 All projects:', allProjects.map(p => ({id: p.fields.id, name: p.fields.name})));
-      
-      // Get ALL products
-      const allProducts = await base('products').select().all();
-      console.log('📦 All products:', allProducts.map(p => ({
-        id: p.fields.id,
-        imageUrl: p.fields.imageUrl?.substring(0, 50) + '...',
-        project: p.fields.project
-      })));
-      
-      return res.json({
-        success: true,
-        requestedProjectId: projectId,
-        totalProjects: allProjects.length,
-        totalProducts: allProducts.length,
-        allProjectIds: allProjects.map(p => p.fields.id),
-        productLinks: allProducts.map(p => ({
-          id: p.fields.id,
-          hasProjectLink: !!p.fields.project,
-          projectLink: p.fields.project
-        }))
-      });
-      
-    } catch (error) {
-      console.error('Debug error:', error);
-      return res.status(500).json({ error: error.message });
-    }
+  // SIMPLE DEBUG - check if function is working
+  if (req.method === 'GET') {
+    return res.json({
+      success: true,
+      message: 'API is working',
+      endpoint: '/api/products',
+      query: req.query,
+      projectParam: req.query.project
+    });
   }
   
   return res.status(404).json({ 
