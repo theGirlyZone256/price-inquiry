@@ -6,7 +6,20 @@ const base = new Airtable({
 
 module.exports = async (req, res) => {
   // === CORS HEADERS ===
-  res.setHeader('Access-Control-Allow-Origin', 'https://your-new-netlify-url.netlify.app');
+  // Fix: Use the actual frontend URL from your error message
+  const allowedOrigins = [
+    'https://priceinquiry.netlify.app',
+    'https://your-new-netlify-url.netlify.app'
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // Allow all for development, restrict in production
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
@@ -54,7 +67,7 @@ module.exports = async (req, res) => {
         success: true, 
         projectId: projectId,
         productCount: imageUrls.length,
-        inquiryUrl: `https://your-new-netlify-url.netlify.app/?project=${projectId}`,
+        inquiryUrl: `https://priceinquiry.netlify.app/?project=${projectId}`,
         message: `Project created with ${imageUrls.length} product(s).`
       });
       
