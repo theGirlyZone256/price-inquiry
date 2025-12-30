@@ -5,15 +5,18 @@ const base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 
 module.exports = async (req, res) => {
-  // === CORS HEADERS ===
+  // === CORS HEADERS FOR ALL REQUESTS ===
   res.setHeader('Access-Control-Allow-Origin', 'https://priceinquiry.netlify.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  // === HANDLE OPTIONS ===
+  // === HANDLE ALL OPTIONS REQUESTS ===
   if (req.method === 'OPTIONS') {
+    console.log('🛬 Handling OPTIONS preflight for', req.url);
     return res.status(200).end();
   }
+  
+  console.log(`📡 ${req.method} ${req.url}`);
   
   // CREATE PROJECT
   if (req.method === 'POST' && req.url === '/api/products') {
@@ -28,6 +31,7 @@ module.exports = async (req, res) => {
       }
       
       const projectId = 'proj_' + Math.floor(100000 + Math.random() * 900000);
+      console.log(`🆕 Creating project: ${projectId} with ${imageUrls.length} images`);
       
       // Create project
       const projectRecord = await base('projects').create([{
@@ -40,6 +44,7 @@ module.exports = async (req, res) => {
       }]);
       
       const projectAirtableId = projectRecord[0].id;
+      console.log(`✅ Project created. Airtable ID: ${projectAirtableId}`);
       
       // Create products
       const productRecords = imageUrls.map((url, i) => ({
@@ -50,7 +55,9 @@ module.exports = async (req, res) => {
         }
       }));
       
+      console.log(`📸 Creating ${productRecords.length} product records...`);
       await base('products').create(productRecords);
+      console.log(`✅ Products created successfully`);
       
       return res.json({ 
         success: true, 
@@ -61,7 +68,7 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Error creating project:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
@@ -69,17 +76,19 @@ module.exports = async (req, res) => {
     }
   }
   
-  // GET PROJECT WITH PRODUCTS - USING MANUAL FILTERING
+  // GET PROJECT WITH PRODUCTS
   if (req.method === 'GET' && req.query.project) {
     try {
       const projectId = req.query.project;
+      console.log(`🔍 Looking for project: ${projectId}`);
       
-      // 1. Find the project
+      // Find project
       const projectRecords = await base('projects').select({
         filterByFormula: `{id} = '${projectId}'`
       }).firstPage();
       
       if (projectRecords.length === 0) {
+        console.log(`❌ Project not found: ${projectId}`);
         return res.status(404).json({ 
           success: false, 
           error: 'Project not found' 
@@ -88,12 +97,12 @@ module.exports = async (req, res) => {
       
       const project = projectRecords[0].fields;
       const projectAirtableId = projectRecords[0].id;
+      console.log(`✅ Project found. Airtable ID: ${projectAirtableId}`);
       
-      // 2. GET ALL PRODUCTS and filter MANUALLY
+      // Get ALL products and filter manually
       const allProducts = await base('products').select().all();
-      
-      // 3. Filter products where project array contains our projectAirtableId
       const linkedProducts = [];
+      
       allProducts.forEach(record => {
         if (record.fields.project && 
             Array.isArray(record.fields.project) && 
@@ -105,12 +114,14 @@ module.exports = async (req, res) => {
         }
       });
       
-      // Sort by creation order (item1, item2, etc.)
+      // Sort by item number
       linkedProducts.sort((a, b) => {
         const aNum = parseInt(a.id.split('_item')[1]) || 0;
         const bNum = parseInt(b.id.split('_item')[1]) || 0;
         return aNum - bNum;
       });
+      
+      console.log(`✅ Found ${linkedProducts.length} products for ${projectId}`);
       
       return res.json({
         success: true,
@@ -124,7 +135,7 @@ module.exports = async (req, res) => {
       });
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Error fetching project:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
@@ -132,9 +143,10 @@ module.exports = async (req, res) => {
     }
   }
   
-  // SUBMIT INQUIRY - SIMPLE VERSION
+  // SUBMIT INQUIRY
   if (req.method === 'POST' && req.url === '/api/inquiries') {
     try {
+      console.log('📝 Received inquiry submission:', req.body);
       const { productId, price, colors, notes } = req.body;
       
       if (!productId || !price) {
@@ -144,7 +156,6 @@ module.exports = async (req, res) => {
         });
       }
       
-      // Convert price to number
       const priceNum = Number(price);
       if (isNaN(priceNum) || priceNum <= 0) {
         return res.status(400).json({ 
@@ -153,8 +164,10 @@ module.exports = async (req, res) => {
         });
       }
       
+      console.log(`💸 Creating inquiry for ${productId}: UGX ${priceNum}`);
+      
       // Create the inquiry record
-      await base('inquiries').create([{ 
+      const inquiryRecord = await base('inquiries').create([{ 
         fields: { 
           productId, 
           price: priceNum,
@@ -164,21 +177,25 @@ module.exports = async (req, res) => {
         } 
       }]);
       
+      console.log(`✅ Inquiry saved successfully! ID: ${inquiryRecord[0].id}`);
+      
       return res.json({ 
         success: true, 
-        message: 'Inquiry response submitted successfully.'
+        message: 'Price submitted successfully!',
+        inquiryId: inquiryRecord[0].id
       });
       
     } catch (error) {
-      console.error('Error submitting inquiry:', error);
+      console.error('❌ Error submitting inquiry:', error);
       return res.status(500).json({ 
         success: false, 
-        error: error.message 
+        error: error.message || 'Failed to submit inquiry' 
       });
     }
   }
   
   // Default 404
+  console.log(`❌ Route not found: ${req.method} ${req.url}`);
   return res.status(404).json({ 
     success: false, 
     error: 'Route not found' 
